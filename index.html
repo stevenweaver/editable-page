@@ -16,92 +16,147 @@
             padding: 20px;
         }
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
+        }
+        .page-header {
+            font-size: 22px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 16px;
+            padding-left: 4px;
+        }
+        .panels {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+        @media (max-width: 720px) {
+            .panels {
+                grid-template-columns: 1fr;
+            }
+        }
+        .panel {
             background: white;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
-        .header {
-            background: #333;
+        .panel-header {
             color: white;
-            padding: 15px 20px;
-            font-size: 18px;
-            font-weight: 500;
+            padding: 12px 16px;
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .status {
-            background: #e8f5e8;
-            color: #2d5a2d;
-            padding: 8px 20px;
-            font-size: 14px;
-            border-bottom: 1px solid #ddd;
+        .panel[data-env="prod"] .panel-header { background: #b03030; }
+        .panel[data-env="staging"] .panel-header { background: #b8860b; }
+        .panel[data-env="training"] .panel-header { background: #2b6cb0; }
+        .panel[data-env="dev"] .panel-header { background: #2f7a3a; }
+        .panel-status {
+            font-size: 12px;
+            font-weight: 400;
+            text-transform: none;
+            opacity: 0.9;
         }
         .editor {
             width: 100%;
-            min-height: 500px;
+            min-height: 280px;
             border: none;
             outline: none;
-            padding: 20px;
-            font-size: 16px;
-            line-height: 1.6;
+            padding: 14px 16px;
+            font-size: 14px;
+            line-height: 1.5;
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
             resize: vertical;
+            flex: 1;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">Writing App</div>
-        <div class="status" id="status">Loading...</div>
-        <textarea class="editor" id="editor" placeholder="Start writing..."></textarea>
+        <div class="page-header">Writing App</div>
+        <div class="panels" id="panels"></div>
     </div>
 
     <script>
-        const editor = document.getElementById('editor');
-        const status = document.getElementById('status');
-        let saveTimeout;
+        const ENVIRONMENTS = ['prod', 'staging', 'training', 'dev'];
+        const panelsEl = document.getElementById('panels');
+        const editors = {};
+        const statuses = {};
+        const saveTimeouts = {};
+
+        function buildPanels() {
+            for (const env of ENVIRONMENTS) {
+                const panel = document.createElement('div');
+                panel.className = 'panel';
+                panel.dataset.env = env;
+
+                const header = document.createElement('div');
+                header.className = 'panel-header';
+                header.textContent = env;
+
+                const statusEl = document.createElement('span');
+                statusEl.className = 'panel-status';
+                statusEl.textContent = 'Loading...';
+                header.appendChild(statusEl);
+
+                const textarea = document.createElement('textarea');
+                textarea.className = 'editor';
+                textarea.placeholder = `Notes for ${env}...`;
+                textarea.addEventListener('input', () => scheduleAutoSave(env));
+
+                panel.appendChild(header);
+                panel.appendChild(textarea);
+                panelsEl.appendChild(panel);
+
+                editors[env] = textarea;
+                statuses[env] = statusEl;
+            }
+        }
 
         async function loadContent() {
             try {
                 const response = await fetch('/api/content');
                 const data = await response.json();
-                editor.value = data.content;
-                status.textContent = 'Ready';
-            } catch (error) {
-                status.textContent = 'Error loading content';
-            }
-        }
-
-        async function saveContent() {
-            try {
-                status.textContent = 'Saving...';
-                const response = await fetch('/api/content', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ content: editor.value })
-                });
-                
-                if (response.ok) {
-                    status.textContent = 'Saved';
-                } else {
-                    status.textContent = 'Error saving';
+                for (const env of ENVIRONMENTS) {
+                    editors[env].value = data[env] || '';
+                    statuses[env].textContent = 'Ready';
                 }
             } catch (error) {
-                status.textContent = 'Error saving';
+                for (const env of ENVIRONMENTS) {
+                    statuses[env].textContent = 'Error loading';
+                }
             }
         }
 
-        function scheduleAutoSave() {
-            clearTimeout(saveTimeout);
-            status.textContent = 'Typing...';
-            saveTimeout = setTimeout(saveContent, 1000);
+        async function saveContent(env) {
+            try {
+                statuses[env].textContent = 'Saving...';
+                const response = await fetch(`/api/content/${env}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: editors[env].value })
+                });
+                statuses[env].textContent = response.ok ? 'Saved' : 'Error saving';
+            } catch (error) {
+                statuses[env].textContent = 'Error saving';
+            }
         }
 
-        editor.addEventListener('input', scheduleAutoSave);
-        
+        function scheduleAutoSave(env) {
+            clearTimeout(saveTimeouts[env]);
+            statuses[env].textContent = 'Typing...';
+            saveTimeouts[env] = setTimeout(() => saveContent(env), 1000);
+        }
+
+        buildPanels();
         loadContent();
     </script>
 </body>
